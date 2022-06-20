@@ -1,0 +1,12 @@
+[package]
+name = "cubic-cuprum"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Reverse proxy for Minecraft Java Edition"
+
+[dependencies]
+cubic-protocol = { version = "0.1.7", features = ["default_packets"] }
+tokio = { version = "1.19.2", features = ["full"] }
+serde = "1.0.137"
+serde_derive = "1.0.137"
