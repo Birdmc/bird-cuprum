@@ -2,3 +2,6 @@
 /.idea
 *.iml
 **/Cargo.lock
+
+# Configuration file
+config.json
