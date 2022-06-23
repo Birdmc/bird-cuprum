@@ -1,12 +1,10 @@
 use std::borrow::Borrow;
 use tokio::*;
-use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
 use std::sync::Arc;
+use cubic_chat::component::TextComponent;
 use cubic_protocol::packet::{InputPacketBytes, PacketReadable, PacketWritable};
-use cubic_protocol::packet_bytes::{InputPacketBytesPrepared, OutputPacketBytesVec};
-use cubic_protocol::packet_default::Handshaking;
+use cubic_protocol::packet_bytes::OutputPacketBytesVec;
+use cubic_protocol::packet_default::{ClientStatusPacket, HandshakeNextState, Handshaking, LoginDisconnect, StatusPong, StatusResponse};
 use cubic_protocol::types::VarInt;
 use cubic_protocol_server::read::ReadStreamQueue;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -32,7 +30,7 @@ async fn run_listener(port: u16, route: IpRoute) -> anyhow::Result<()> {
         format!("0.0.0.0:{}", port)
     ).await?;
     loop {
-        let (stream, addr) = listener.accept().await?;
+        let (stream, _) = listener.accept().await?;
         let route = route.clone();
         tokio::spawn(async move {
             let (read, mut write) = stream.into_split();
@@ -56,20 +54,20 @@ async fn run_listener(port: u16, route: IpRoute) -> anyhow::Result<()> {
                             connection,
                             read_queue,
                             write,
-                            handshake_packet
+                            handshake_packet,
                         ).await,
                         Err(_) => failed_as_proxy(
                             chosen_server,
                             read_queue,
                             write,
-                            handshake_packet
+                            handshake_packet,
                         ).await,
                     }
                 }
                 None => {
                     log::debug!("Can not find server: {}", handshake_packet.server_address);
                     write.shutdown().await.map_err(|e| e.into())
-                },
+                }
             }
         });
     }
@@ -83,20 +81,30 @@ async fn proxying<const BUFFER_SIZE: usize>(
     loop {
         match read.read(&mut buffer).await {
             Ok(0) | Err(_) => {
-                write.shutdown().await;
+                let _ = write.shutdown().await;
                 break;
             }
             Ok(size) => {
-                write.write_all(&buffer[0..size]).await
+                let _ = write.write_all(&buffer[0..size]).await;
             }
         };
     }
 }
 
-async fn run_as_proxy<const BUFFER_SIZE: usize>(
-    server_config: Arc<CuprumServerConfig>,
+async fn send_packet(write: &mut OwnedWriteHalf, packet: impl PacketWritable) -> anyhow::Result<()> {
+    let mut packet_bytes = OutputPacketBytesVec::new();
+    packet.write(&mut packet_bytes).await?;
+    let mut length_bytes = OutputPacketBytesVec::new();
+    <VarInt as PacketWritable>::write(VarInt::from(packet_bytes.data.len() as i32), &mut length_bytes).await?;
+    write.write_all(length_bytes.data.as_slice()).await?;
+    write.write_all(packet_bytes.data.as_slice()).await?;
+    Ok(())
+}
+
+async fn run_as_proxy<const RS_QUEUE_BUFFER_SIZE: usize>(
+    _server_config: Arc<CuprumServerConfig>,
     server_connection: TcpStream,
-    read: ReadStreamQueue<BUFFER_SIZE>,
+    read: ReadStreamQueue<RS_QUEUE_BUFFER_SIZE>,
     write: OwnedWriteHalf,
     handshake: Handshaking,
 ) -> anyhow::Result<()> {
@@ -107,25 +115,45 @@ async fn run_as_proxy<const BUFFER_SIZE: usize>(
     tokio::spawn(async move {
         proxying::<BUFFER_SIZE>(server_read, write).await
     });
-    let mut handshake_bytes = OutputPacketBytesVec::new();
-    <Handshaking as PacketWritable>::write(handshake, &mut handshake_bytes).await?;
-    let mut end_bytes = OutputPacketBytesVec::new();
-    <VarInt as PacketWritable>::write(VarInt::from(handshake_bytes.data.len() as i32), &mut end_bytes).await?;
-    server_write.write_all(end_bytes.data.as_slice()).await;
-    server_write.write_all(handshake_bytes.data.as_slice()).await;
-    drop(handshake_bytes);
-    drop(end_bytes);
-    server_write.write_all(additional.borrow()).await;
+    send_packet(&mut server_write, handshake).await?;
+    let _ = server_write.write_all(additional.borrow()).await;
     proxying::<BUFFER_SIZE>(read, server_write).await;
     Ok(())
 }
 
 async fn failed_as_proxy<const BUFFER_SIZE: usize>(
     server_config: Arc<CuprumServerConfig>,
-    read: ReadStreamQueue<BUFFER_SIZE>,
-    write: OwnedWriteHalf,
+    mut read: ReadStreamQueue<BUFFER_SIZE>,
+    mut write: OwnedWriteHalf,
     handshake: Handshaking,
 ) -> anyhow::Result<()> {
     log::debug!("Connecting to the main server - Failed");
-    todo!("Implement")
+    match handshake.next_state {
+        HandshakeNextState::Login => send_packet(
+            &mut write,
+            LoginDisconnect {
+                reason: TextComponent::new(server_config.offline_kick.clone()).into()
+            },
+        ).await,
+        HandshakeNextState::Status => {
+            loop {
+                read.next_packet().await?;
+                let packet = ClientStatusPacket::read(&mut read).await?;
+                match packet {
+                    ClientStatusPacket::StatusPing(ping) => send_packet(
+                        &mut write,
+                        StatusPong {
+                            payload: ping.payload
+                        },
+                    ).await,
+                    ClientStatusPacket::StatusRequest(_) => send_packet(
+                        &mut write,
+                        StatusResponse {
+                            response: server_config.offline_status.clone()
+                        },
+                    ).await
+                }?;
+            }
+        }
+    }
 }

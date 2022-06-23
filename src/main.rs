@@ -10,13 +10,15 @@ mod route;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    SimpleLogger::new().with_level(LevelFilter::Debug).init();
+    SimpleLogger::new().with_level(LevelFilter::Debug).init().unwrap();
     log::info!("Loading configuration");
     let file = std::fs::read_to_string("config.json")?;
     let config: CuprumConfig = serde_json::from_str(file.as_str())?;
     log::info!("Configuration loaded");
     for handle in run_server(config) {
-        handle.await?;
+        if let Err(err) = handle.await {
+            log::error!("Error: {}", err)
+        }
     }
     Ok(())
 }

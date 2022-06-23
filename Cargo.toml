@@ -6,8 +6,9 @@ license = "MIT"
 description = "Reverse proxy for Minecraft Java Edition"
 
 [dependencies]
-cubic-protocol = { version = "0.1.8", features = ["default_packets"] }
+cubic-protocol = { version = "0.1.11", features = ["default_packets"] }
 cubic-protocol-server = "0.1.9"
+cubic-chat = "0.1.1"
 tokio = { version = "1.19.2", features = ["full"] }
 serde = "1.0.137"
 serde_derive = "1.0.137"
