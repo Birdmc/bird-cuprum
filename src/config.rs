@@ -1,9 +1,16 @@
 use cubic_protocol::packet_default::StatusResponseObject;
 use serde::{Serialize, Deserialize};
+use crate::forwarding::IpForwarding;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct CuprumConfig {
     pub servers: Vec<CuprumServerConfig>,
+    #[serde(flatten)]
+    pub ex: CuprumConfigEx,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct CuprumConfigEx {
     pub buffer_size: usize,
 }
 
@@ -15,4 +22,6 @@ pub struct CuprumServerConfig {
     pub server: String,
     pub offline_status: StatusResponseObject,
     pub offline_kick: String,
+    #[serde(default = "IpForwarding::default")]
+    pub ip_forwarding: IpForwarding,
 }

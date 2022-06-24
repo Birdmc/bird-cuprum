@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::config::CuprumServerConfig;
-use crate::CuprumConfig;
 
 #[derive(Clone)]
 pub struct IpRoute {
@@ -11,9 +10,9 @@ pub struct IpRoute {
 }
 
 impl IpRoute {
-    pub fn new_routes(config: CuprumConfig) -> HashMap<u16, IpRoute> {
+    pub fn new_routes(routes: Vec<CuprumServerConfig>) -> HashMap<u16, IpRoute> {
         let mut ip_routes = HashMap::new();
-        config.servers
+        routes
             .into_iter()
             .for_each(|config| {
                 let ip_route = match ip_routes.get_mut(&config.listen) {

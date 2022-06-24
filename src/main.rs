@@ -7,6 +7,7 @@ use crate::server::run_server;
 mod config;
 mod server;
 mod route;
+mod forwarding;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
