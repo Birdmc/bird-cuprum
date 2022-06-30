@@ -1,4 +1,4 @@
-use cubic_protocol::packet_default::StatusResponseObject;
+use bird_protocol::packet_default::StatusResponseObject;
 use serde::{Serialize, Deserialize};
 use crate::forwarding::IpForwarding;
 
